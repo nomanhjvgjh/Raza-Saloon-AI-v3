@@ -1,0 +1,7 @@
+{
+  "name": "Raza Saloon - Professional AI Hairstyle Filter",
+  "description": "An AI-powered professional hairstyle simulator by Raza Saloon that analyzes your face shape and applies realistic hairstyles using Gemini's advanced image generation.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
