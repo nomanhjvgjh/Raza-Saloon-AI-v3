@@ -26,44 +26,43 @@ const CameraView: React.FC<CameraViewProps> = ({ onCapture, isActive }) => {
     setLoading(true);
     setError(null);
     
-    // Try multiple configurations in order of preference
-    const constraints = [
-      {
-        video: { 
-          facingMode: 'user',
-          width: { ideal: 1080 },
-          height: { ideal: 1920 }
-        },
-        audio: false
-      },
-      {
-        video: { facingMode: 'user' },
-        audio: false
-      },
-      {
-        video: true,
-        audio: false
-      }
+    // Ordered list of constraints from most ideal to most basic
+    const constraintOptions = [
+      { video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+      { video: { facingMode: 'user' }, audio: false },
+      { video: { width: { ideal: 640 } }, audio: false },
+      { video: true, audio: false }
     ];
 
-    let success = false;
-    for (const constraint of constraints) {
+    let lastError: any = null;
+    let stream: MediaStream | null = null;
+
+    for (const constraints of constraintOptions) {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia(constraint);
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          success = true;
-          break;
-        }
-      } catch (err) {
-        console.warn("Camera constraint failed, trying fallback...", err);
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (stream) break;
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`Camera attempt with constraints ${JSON.stringify(constraints)} failed:`, err.name);
       }
     }
 
-    if (!success) {
-      setError("No camera found or access denied. Please check your permissions.");
+    if (stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+      // Wait for metadata to be loaded to ensure video is ready
+      videoRef.current.onloadedmetadata = () => {
+        setLoading(false);
+      };
+    } else {
+      setLoading(false);
+      if (lastError?.name === 'NotFoundError' || lastError?.name === 'DevicesNotFoundError') {
+        setError("No camera detected on this device. Please connect a camera or check your hardware.");
+      } else if (lastError?.name === 'NotAllowedError' || lastError?.name === 'PermissionDeniedError') {
+        setError("Camera access was denied. Please update your browser settings to allow camera use.");
+      } else {
+        setError("Could not start camera. Please ensure no other app is using it and refresh.");
+      }
     }
-    setLoading(false);
   };
 
   const stopCamera = () => {
@@ -83,8 +82,11 @@ const CameraView: React.FC<CameraViewProps> = ({ onCapture, isActive }) => {
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
       if (ctx) {
+        // Draw the current video frame
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+        
+        // Convert to base64
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
         const base64 = dataUrl.split(',')[1];
         onCapture(base64);
       }
@@ -92,19 +94,19 @@ const CameraView: React.FC<CameraViewProps> = ({ onCapture, isActive }) => {
   };
 
   return (
-    <div className="relative w-full h-full bg-[#050505] overflow-hidden rounded-[2.5rem] shadow-2xl border border-white/5">
+    <div className="relative w-full h-full bg-[#0a0a0a] overflow-hidden rounded-[2.5rem] shadow-2xl border border-white/5">
       {error ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 bg-black/90 backdrop-blur-xl">
-          <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4 border border-red-500/20">
-            <span className="text-2xl text-red-500">!</span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 bg-black/90 backdrop-blur-xl z-50">
+          <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-6 border border-red-500/20">
+            <span className="text-3xl text-red-500">!</span>
           </div>
-          <p className="font-bold text-red-400 mb-2">Camera Error</p>
-          <p className="text-white/60 text-sm leading-relaxed">{error}</p>
+          <p className="font-black text-white uppercase tracking-widest mb-2">Device Error</p>
+          <p className="text-white/50 text-xs leading-relaxed max-w-[200px] mb-8">{error}</p>
           <button 
             onClick={startCamera}
-            className="mt-6 px-6 py-2 bg-white/10 rounded-full text-xs font-bold uppercase tracking-widest hover:bg-white/20 transition-all"
+            className="px-8 py-3 bg-blue-600 rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-[0_10px_20px_rgba(37,99,235,0.3)] hover:bg-blue-500 active:scale-95 transition-all"
           >
-            Retry Access
+            Reconnect Camera
           </button>
         </div>
       ) : (
@@ -114,43 +116,50 @@ const CameraView: React.FC<CameraViewProps> = ({ onCapture, isActive }) => {
             autoPlay
             playsInline
             muted
-            style={{ transform: 'scaleX(-1)' }} // Mirror the preview
-            className={`w-full h-full object-cover transition-opacity duration-700 ${loading ? 'opacity-0' : 'opacity-100'}`}
+            style={{ transform: 'scaleX(-1)' }} // Mirror the preview for natural selfie feel
+            className={`w-full h-full object-cover transition-opacity duration-1000 ${loading ? 'opacity-0' : 'opacity-100'}`}
           />
           <canvas ref={canvasRef} className="hidden" />
           
           {loading && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-10 h-10 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black">
+              <div className="w-12 h-12 border-4 border-blue-500/10 border-t-blue-500 rounded-full animate-spin mb-4" />
+              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/20">Initializing Lens</p>
             </div>
           )}
 
-          {/* Premium AR Guides */}
           {!loading && (
             <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-              <div className="relative w-72 h-[26rem] flex items-center justify-center">
-                {/* Face Area Highlight */}
-                <div className="absolute inset-0 border-[1px] border-white/10 rounded-[50%_50%_45%_45%] shadow-[0_0_80px_rgba(255,255,255,0.03)] pulse-ring"></div>
+              <div className="relative w-72 h-[28rem] flex items-center justify-center">
+                {/* Face Area Guide */}
+                <div className="absolute inset-0 border border-white/10 rounded-[50%_50%_45%_45%] shadow-[0_0_100px_rgba(37,99,235,0.05)] pulse-ring"></div>
                 
-                {/* Minimalist Tech Borders */}
-                <div className="absolute top-0 left-0 w-12 h-12 border-t-2 border-l-2 border-blue-500/40 rounded-tl-[3rem]"></div>
-                <div className="absolute top-0 right-0 w-12 h-12 border-t-2 border-r-2 border-blue-500/40 rounded-tr-[3rem]"></div>
-                <div className="absolute bottom-0 left-0 w-12 h-12 border-b-2 border-l-2 border-blue-500/40 rounded-bl-[3rem]"></div>
-                <div className="absolute bottom-0 right-0 w-12 h-12 border-b-2 border-r-2 border-blue-500/40 rounded-br-[3rem]"></div>
+                {/* Tech Corners */}
+                <div className="absolute top-0 left-0 w-14 h-14 border-t-2 border-l-2 border-blue-500/40 rounded-tl-[3.5rem]"></div>
+                <div className="absolute top-0 right-0 w-14 h-14 border-t-2 border-r-2 border-blue-500/40 rounded-tr-[3.5rem]"></div>
+                <div className="absolute bottom-0 left-0 w-14 h-14 border-b-2 border-l-2 border-blue-500/40 rounded-bl-[3.5rem]"></div>
+                <div className="absolute bottom-0 right-0 w-14 h-14 border-b-2 border-r-2 border-blue-500/40 rounded-br-[3.5rem]"></div>
+                
+                {/* Scanner Dots */}
+                <div className="absolute top-1/4 left-10 w-1 h-1 bg-blue-400 rounded-full animate-pulse"></div>
+                <div className="absolute top-1/4 right-10 w-1 h-1 bg-blue-400 rounded-full animate-pulse delay-700"></div>
+                <div className="absolute bottom-1/4 left-10 w-1 h-1 bg-blue-400 rounded-full animate-pulse delay-300"></div>
+                <div className="absolute bottom-1/4 right-10 w-1 h-1 bg-blue-400 rounded-full animate-pulse delay-500"></div>
               </div>
             </div>
           )}
 
-          <div className="absolute bottom-12 left-0 right-0 flex justify-center px-4">
+          <div className="absolute bottom-12 left-0 right-0 flex justify-center px-4 z-20">
              <button
                onClick={captureFrame}
                disabled={loading}
-               className="group relative w-20 h-20 flex items-center justify-center active:scale-90 transition-transform disabled:opacity-50 disabled:scale-90"
+               className="group relative w-24 h-24 flex items-center justify-center active:scale-90 transition-all disabled:opacity-0"
              >
-               <div className="absolute inset-0 bg-blue-500/20 rounded-full blur-xl scale-125 group-hover:bg-blue-500/40 transition-all"></div>
-               <div className="relative w-16 h-16 bg-white rounded-full border-[6px] border-black/5 shadow-2xl flex items-center justify-center overflow-hidden">
-                 <div className="w-full h-full bg-gradient-to-tr from-white via-white to-neutral-200" />
-                 <div className="absolute inset-[3px] rounded-full border border-black/5" />
+               <div className="absolute inset-0 bg-blue-600/20 rounded-full blur-2xl scale-125 group-hover:bg-blue-600/40 transition-all"></div>
+               <div className="relative w-20 h-20 bg-white rounded-full border-[8px] border-black/10 shadow-2xl flex items-center justify-center p-1">
+                 <div className="w-full h-full rounded-full bg-gradient-to-tr from-neutral-100 to-white flex items-center justify-center">
+                    <div className="w-14 h-14 rounded-full border-2 border-black/5" />
+                 </div>
                </div>
              </button>
           </div>
